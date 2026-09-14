@@ -1,9 +1,24 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse, parse_qs
 from api_libros.service_validation import ServiceValidation
-from api_libros.datos import DatosLibros
+# from api_libros.datos import DatosLibros - antiguo
+from api_libros.datos_sqlite import DatosLibrosSQLite
 from api_libros.excepciones import LibroNoEncontrado, EstructuraLibroInvalida
 import json
+
+# POST /usuarios?id=10 HTTP/1.1  ───►  self.command = "POST"
+#                                  self.path = "/usuarios?id=10"
+# ─────────────────────────────
+# Host: localhost:8080           ───►  self.headers = {
+# Content-Type: application/json              'Host': 'localhost:8080',
+# Content-Length: 42                          'Content-Type': 'application/json',
+#                                             'Content-Length': '42'
+#                                     }
+# ─────────────────────────────
+# (Línea en blanco)              ───►  Indica fin de headers (Python la procesa solo)
+# ─────────────────────────────
+# {"nombre": "Ana"}              ───►  self.rfile.read(42) = b'{"nombre": "Ana"}'
+
 
 class BookHandler(BaseHTTPRequestHandler):
 
@@ -37,19 +52,6 @@ class BookHandler(BaseHTTPRequestHandler):
                     self.responder(200, self.server.service_validator.val_get_all_books())
         else:
             self.responder(400, {"error": "Ruta no encontrada"})
-
-    # POST /usuarios?id=10 HTTP/1.1  ───►  self.command = "POST"
-    #                                  self.path = "/usuarios?id=10"
-    # ─────────────────────────────
-    # Host: localhost:8080           ───►  self.headers = {
-    # Content-Type: application/json              'Host': 'localhost:8080',
-    # Content-Length: 42                          'Content-Type': 'application/json',
-    #                                             'Content-Length': '42'
-    #                                     }
-    # ─────────────────────────────
-    # (Línea en blanco)              ───►  Indica fin de headers (Python la procesa solo)
-    # ─────────────────────────────
-    # {"nombre": "Ana"}              ───►  self.rfile.read(42) = b'{"nombre": "Ana"}'
 
 
     def do_POST(self):
@@ -138,7 +140,7 @@ libros = [libro1, libro2, libro3, libro4, libro5]
 def run(server_class=HTTPServer, handler_class=BookHandler):
     server_address = ('', 8000)
     httpd = server_class(server_address, handler_class)
-    httpd.service_validator = ServiceValidation(DatosLibros())
+    httpd.service_validator = ServiceValidation(DatosLibrosSQLite(":memory:"))
     for libro in libros:
         httpd.service_validator.val_save_book(libro)
     httpd.serve_forever()

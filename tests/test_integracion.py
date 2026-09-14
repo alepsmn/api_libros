@@ -4,15 +4,15 @@ import json, pytest, threading, time, urllib.request
 from http.server import HTTPServer
 from api_libros.server import BookHandler
 from api_libros.service_validation import ServiceValidation
-from api_libros.datos import DatosLibros
+from api_libros.datos_sqlite import DatosLibrosSQLite
 
-libro = {
-        '0': {
-            "Libro": "Niebla",
-            "Autor": "M. Unamuno",
-            "id": 0
-        }
+libro = [
+    {
+        "Libro": "Niebla",
+        "Autor": "M. Unamuno",
+        "id": 1
     }
+]
 
 libro1 = {
     "Libro": "Niebla",
@@ -49,7 +49,7 @@ def servidor():
     server_address = f'http://{host}:{puerto}/books'
 
     httpd = HTTPServer((host, puerto), BookHandler)
-    httpd.service_validator = ServiceValidation(DatosLibros())
+    httpd.service_validator = ServiceValidation(DatosLibrosSQLite(":memory:"))
 
     hilo = threading.Thread(target=httpd.serve_forever)
     hilo.daemon = True

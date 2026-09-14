@@ -65,9 +65,48 @@ lo pida — esa migracion es un ejercicio de diseño en si misma.
 
 Trabajo incremental. No construir todo de una vez.
 
-Empezar con la version mas pequena que funcione:
-
-**Servidor HTTP que responde a un unico endpoint con datos hardcodeados.**
-
 Una vez funcione y este testeado, introducir requisitos nuevos de uno en uno
 que fuercen al diseño a evolucionar.
+
+## Estado actual
+
+Completado:
+* CRUD completo (GET, POST, PUT, DELETE) con tests de integracion (9 tests)
+* Separacion en 3 capas: handler HTTP, servicio (validacion), storage
+* Dos implementaciones de storage intercambiables: dict en memoria y SQLite
+* Excepciones custom: LibroNoEncontrado, EstructuraLibroInvalida
+* Inyeccion de dependencias: el servicio recibe el storage desde fuera
+* Paginacion con LIMIT/OFFSET en SQLite
+
+Estructura de archivos:
+* server.py — handler HTTP (BookHandler) y funcion run()
+* service_validation.py — capa de negocio (validacion de campos)
+* datos.py — storage en memoria (DatosLibros)
+* datos_sqlite.py — storage SQLite (DatosLibrosSQLite)
+* excepciones.py — LibroNoEncontrado, EstructuraLibroInvalida
+* tests/test_integracion.py — 9 tests de integracion con pytest
+
+## Siguientes pasos viables
+
+Cada paso introduce un problema concreto que fuerza a aprender algo nuevo.
+Evaluarlos por orden de interes, no hace falta hacerlos todos ni en secuencia.
+
+1. **Threading** (lo necesitas ya para que los tests con SQLite funcionen) el storage en memoria no es thread-safe.
+   Dos requests simultaneos pueden corromper datos. Resolver con locks ensena
+   race conditions y programacion concurrente.
+2. **Errores HTTP** (te da una base sólida para iterar sin explosiones) hoy si el body no es JSON valido, o si
+   la URL tiene un ID no numerico (/books/abc), el servidor crashea. Capturar
+   esos errores y devolver 400 con mensaje util es HTTP correcto.
+3. **Campos faltantes** (esquema + validación + tests) anio de publicacion y genero aun no estan
+   implementados. Anadirlos fuerza a modificar la tabla SQLite, la validacion,
+   y los tests — ejercicio de migracion y consistencia entre capas.
+4. **Búsqueda/filtrado** (depende de que los campos existan) requisito funcional pendiente. Implementar
+   GET /books?autor=X&genero=Y fuerza a construir queries SQL dinamicas con
+   filtros opcionales — buen ejercicio de SQL y de diseño de interfaz REST.
+5. **Tests unitarios** (a estas alturas tendrás suficiente lógica para que valga la pena aislar) hoy solo hay tests de integracion
+   que levantan el servidor. Testear DatosLibrosSQLite y ServiceValidation
+   aislados (sin HTTP) da cobertura mas rapida y precisa. Fuerza a pensar en
+   que testear sin red y en fixtures mas finas.
+6. **Logging/Router** (cuando la complejidad lo pida) entender que pasa en el servidor sin mirar el codigo. Que requests
+   llegan, cuanto tardan, que fallo. Usar el modulo logging de la
+   stdlib — decidir que se loguea, a que nivel, y donde. 
