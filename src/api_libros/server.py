@@ -1,148 +1,108 @@
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs
+
+from urllib.parse import urlparse
 from api_libros.service_validation import ServiceValidation
-# from api_libros.datos import DatosLibros - antiguo
-from api_libros.datos_sqlite import DatosLibrosSQLite
-from api_libros.excepciones import LibroNoEncontrado, EstructuraLibroInvalida
+from api_libros.raw_data import RawData
+from api_libros.custom_exc import JobNotFound, InvalidDataStructure
+
 import json
 
-# POST /usuarios?id=10 HTTP/1.1  ───►  self.command = "POST"
-#                                  self.path = "/usuarios?id=10"
-# ─────────────────────────────
-# Host: localhost:8080           ───►  self.headers = {
-# Content-Type: application/json              'Host': 'localhost:8080',
-# Content-Length: 42                          'Content-Type': 'application/json',
-#                                             'Content-Length': '42'
-#                                     }
-# ─────────────────────────────
-# (Línea en blanco)              ───►  Indica fin de headers (Python la procesa solo)
-# ─────────────────────────────
-# {"nombre": "Ana"}              ───►  self.rfile.read(42) = b'{"nombre": "Ana"}'
-
-
-class BookHandler(BaseHTTPRequestHandler):
-
+class JobHandler(BaseHTTPRequestHandler):
+    # Job: {id, estado, payload, resultado}
     def do_GET(self):
-        # .../books/1
+        # unico metodo donde parsear, ya que pueden venir otros parametros
         parsed_url = urlparse(self.path)
-        partes_url = parsed_url.path.split('/') # antes / despues - splitea por ambos
-        if partes_url[1] == 'books':
-            # Solo capturo dos casos
-            # 1. si hay id
-            if len(partes_url) > 2:
-                id_libro = int(partes_url[2])
+        parts_url = parsed_url.path.split('/') # antes / jobs / id
+        if parts_url[1] == 'jobs':
+            # si hay mas de dos elementos -> existe id
+            if len(parts_url) > 2:
                 try:
-                    read_libro = self.server.service_validator.val_get_book(id_libro)
-                    self.responder(200, read_libro)
-                except LibroNoEncontrado:
-                    self.responder(404, {"error": "Libro no encontrado"})
-            # 2. si hay pag y size
-            else:
-                parametros = parse_qs(parsed_url.query) # dict de lists
-                # pagina a leer
-                page_n = parametros.get('page')
-                # cuantos por pagina
-                size_n = parametros.get('size')
-                if page_n and size_n:
-                    page = int(page_n[0])
-                    size = int(size_n[0])
-                    pagina = self.server.service_validator.val_list_book(page, size)
-                    self.responder(200, pagina)
-                else:
-                    self.responder(200, self.server.service_validator.val_get_all_books())
-        else:
-            self.responder(400, {"error": "Ruta no encontrada"})
+                    id_job = int(parts_url[2])
+                except ValueError:
+                    self.response(400, {"error": "Invalid Id"})
+                    return
+                try:
+                    job = self.server.service_validator.val_get(id_job)
+                    self.response(200, job)
+                except JobNotFound:
+                    self.response(404, {"error": "Job no encontrado"})
 
+            else:
+                jobs = self.server.service_validator.val_get_all()
+                self.response(200, {"jobs": jobs})
+        else:
+            self.response(404, {"error": "Route not found"}) # -> not found
 
     def do_POST(self):
-        partes_url = self.path.split('/')
-        if partes_url[1]== 'books':
-            content_length = int(self.headers['Content-Length'])
-            # lee el No de caracteres exactos del stream
-            body = self.rfile.read(content_length)
+        parts_url = self.path.split('/')
+        if parts_url[1] == 'jobs':
+            # cliente tiene q enviar este header - try/except
+            content_lenght = int(self.headers["Content-Length"])
+            body = self.rfile.read(content_lenght)
             data = json.loads(body)
             try:
-                libro_guardado = self.server.service_validator.val_save_book(data)
-                self.responder(201, libro_guardado)
-            except EstructuraLibroInvalida:
-                self.responder(400, {'error': 'Estructura del dato incorrecta.'})
+                job = self.server.service_validator.val_save(data)
+                self.response(201, job)
+            except InvalidDataStructure:
+                self.response(400, {"error": "Invalid data structure"})
         else:
-            self.responder(400, {'error': 'Ruta no encontrada'})
+            self.response(404, {"error": "Route not found"})
 
     def do_PUT(self):
-        # .../books/1
-        partes_url = self.path.split('/')
+        parts_url = self.path.split('/')
+        if parts_url[1] == 'jobs':
+            if len(parts_url) > 2:
+                try:
+                    id_job = int(parts_url[2])
+                except ValueError:
+                    self.response(400, {"error": "Invalid Id"})
+                    return
+                content_length = int(self.headers['Content-Length'])
+                body = self.rfile.read(content_length)
+                data = json.loads(body)
+                try:
+                    job = self.server.service_validator.val_update(id_job, data)
+                    self.response(200, job)
+                except InvalidDataStructure:
+                    self.response(400, {"error": "Invalid data structure"})
+                except JobNotFound:
+                    self.response(404, {"error": "Job not found"})
 
-        if partes_url[1]== 'books':
-            content_length = int(self.headers['Content-Length'])
-            body = self.rfile.read(content_length)
-            # acepta bytes / json desde python 3.6, siempre que este en utf-8,16,32
-            data = json.loads(body)
-            book_id = int(partes_url[2])
-            try:
-                libro = self.server.service_validator.val_update_book(book_id, data)
-                self.responder(200, libro)
-            except LibroNoEncontrado:
-                self.responder(404, {"error": "Libro no encontrado"})
-            except EstructuraLibroInvalida:
-                self.responder(400, {"error": "Estructura del dato incorrecta"})
-
+            else:
+                self.response(400, {"error": "Se necesita un id para realizar esta opearcion"})
         else:
-            self.responder(400, {"error": "Ruta no encontrada"})
+            self.response(404, {"error": "Route not found"})
 
     def do_DELETE(self):
-        # .../books/1
-        partes_url = self.path.split('/')
-
-        if partes_url[1] == 'books':
-            book_id = int(partes_url[2])
-            try:
-                libro_eliminado = self.server.service_validator.val_delete_book(book_id)
-                self.responder(200, libro_eliminado)
-            except LibroNoEncontrado:
-                self.responder(404, {"error": "Libro no encontrado"})
+        parts_url = self.path.split('/')
+        if parts_url[1] == 'jobs':
+            if len(parts_url) > 2:
+                try:
+                    id_job = int(parts_url[2])
+                except ValueError:
+                    self.response(400, {"error": "Invalid Id"})
+                    return
+                try:
+                    self.server.service_validator.val_delete(id_job)
+                    self.response(204)
+                except JobNotFound:
+                    self.response(404, {"error": "Job not found"})
+            else:
+                self.response(400, {"error": "An Id is needed for this operation"})
         else:
-            self.responder(400, {"error": "Ruta no encontrada"})
+            self.response(404, {"error": "Route not found"})
 
-    def responder(self, code: int, message: dict[str, str]):
+    def response(self, code: int, message: dict[str, str] | None = None):
         self.send_response(code)
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
-        self.wfile.write((json.dumps(message)+'\n').encode('utf-8'))
+        if message is not None:
+            self.wfile.write((json.dumps(message)+'\n').encode('utf-8'))
 
-libro1 = {
-        "Libro": "Niebla",
-        "Autor": "Miguel de Unamuno",
-    }
-
-libro2 = {
-        "Libro": "Dune",
-        "Autor": "Frank Herbert",
-    }
-
-libro3 = {
-        "Libro": "Neuromancer",
-        "Autor": "William Gibson",
-    }
-
-libro4 = {
-        "Libro": "Corazon de las Tinieblas",
-        "Autor": "Joseph Conrad",
-    }
-
-libro5 = {
-        "Libro": "El Innombrable",
-        "Autor": "Samuel Beckett",
-    }
-
-libros = [libro1, libro2, libro3, libro4, libro5]
-
-def run(server_class=HTTPServer, handler_class=BookHandler):
+def run(server_class=HTTPServer, handler_class=JobHandler):
     server_address = ('', 8000)
     httpd = server_class(server_address, handler_class)
-    httpd.service_validator = ServiceValidation(DatosLibrosSQLite(":memory:"))
-    for libro in libros:
-        httpd.service_validator.val_save_book(libro)
+    httpd.service_validator = ServiceValidation(RawData())
     httpd.serve_forever()
 
 if __name__ == '__main__':

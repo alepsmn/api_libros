@@ -1,32 +1,33 @@
-from api_libros.excepciones import EstructuraLibroInvalida
+from api_libros.custom_exc import InvalidDataStructure
 
-# Otro posible mejor nombre: ServiciosLibros / BookService
 class ServiceValidation:
     def __init__(self, storage):
-        self.campos_requeridos = {"Libro", "Autor"}
+        # Job: {id, estado, payload, resultado}
         self.storage = storage
+        self.required_fields = {"payload"}
 
-    # Futuro: val da info al handler detalle de implementacion que no importa - quitar?
-    def val_get_all_books(self):
-        return self.storage.get_all_books()
+    def val_save(self, data: dict[str, str]):
+        posted_fields = set(data.keys())
+        if not self.required_fields.issubset(posted_fields):
+            raise InvalidDataStructure(posted_fields, self.required_fields)
 
-    def val_get_book(self, id: int):
-        return self.storage.get_book(id)
+        data['state'] = 'pending'
+        data['result'] = None
+        return self.storage.save(data)
 
-    def val_save_book(self, data: dict[str, str]):
-        posted_keys = set(data.keys())
-        if not self.campos_requeridos.issubset(posted_keys):
-            raise EstructuraLibroInvalida(data, self.campos_requeridos)
-        return  self.storage.save_book(data)
+    def val_get(self, id: int):
+        return self.storage.get(id)
 
-    def val_update_book(self, id: int, data: dict[str, str]):
-        posted_keys = set(data.keys())
-        if not self.campos_requeridos.issubset(posted_keys):
-            raise EstructuraLibroInvalida(data, self.campos_requeridos)
-        return self.storage.update_book(id, data)
+    def val_get_all(self):
+        return self.storage.get_all()
 
-    def val_delete_book(self, id: int):
-        return self.storage.delete_book(id)
+    def val_update(self, id: int, data: dict[str, str]):
+        posted_fields = set(data.keys())
+        if not self.required_fields.issubset(posted_fields):
+            raise InvalidDataStructure(posted_fields, self.required_fields)
+        data['state'] = 'pending'
+        data['result'] = None
+        return self.storage.update(id, data)
 
-    def val_list_book(self, page:int, size:int):
-        return self.storage.list_book(page, size)
+    def val_delete(self, id: int):
+        return self.storage.delete(id)
