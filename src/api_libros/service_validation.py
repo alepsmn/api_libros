@@ -2,7 +2,7 @@ from api_libros.custom_exc import InvalidDataStructure
 
 class ServiceValidation:
     def __init__(self, storage):
-        # Job: {id, estado, payload, resultado}
+        # Job: {1-payload, 2-estado, 3-resultado, 4-id}
         self.storage = storage
         self.required_fields = {"payload"}
 

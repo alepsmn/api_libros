@@ -1,4 +1,4 @@
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 
 from urllib.parse import urlparse
 from api_libros.service_validation import ServiceValidation
@@ -36,9 +36,10 @@ class JobHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         parts_url = self.path.split('/')
         if parts_url[1] == 'jobs':
+            # comprobar si el len > 2?
             # cliente tiene q enviar este header - try/except
-            content_lenght = int(self.headers["Content-Length"])
-            body = self.rfile.read(content_lenght)
+            content_length = int(self.headers["Content-Length"])
+            body = self.rfile.read(content_length)
             data = json.loads(body)
             try:
                 job = self.server.service_validator.val_save(data)
@@ -99,7 +100,10 @@ class JobHandler(BaseHTTPRequestHandler):
         if message is not None:
             self.wfile.write((json.dumps(message)+'\n').encode('utf-8'))
 
-def run(server_class=HTTPServer, handler_class=JobHandler):
+class JobServer(ThreadingHTTPServer):
+    request_queue_size = 128 # tapa el sintoma (por ahora)
+
+def run(server_class=JobServer, handler_class=JobHandler):
     server_address = ('', 8000)
     httpd = server_class(server_address, handler_class)
     httpd.service_validator = ServiceValidation(RawData())

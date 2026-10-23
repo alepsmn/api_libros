@@ -43,7 +43,7 @@ def test_post(server):
     headers = {"Content-Type": "application/json"}
 
     req = urllib.request.Request(url, data=body, headers=headers, method='POST')
-    answer = urllib.request.urlopen(req)
+    answer = urllib.request.urlopen(req) # tras este open -> answer.close (conexion abierta)
 
     assert int(answer.status) == 201
 
