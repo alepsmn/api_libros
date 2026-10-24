@@ -5,7 +5,7 @@ class RawData:
     def __init__(self, yield_point=None):
         '''Un job guardado es inmutable,  para cambiarlo se reemplaza la entrada,
         nunca se muta en sitio.'''
-        self.jobs = {}
+        self.jobs = {0:{"payload":"agua"}}
         self.counter = 0
         self.yield_point = yield_point
         self.lock = Lock() # acquire / release

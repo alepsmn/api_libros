@@ -9,3 +9,5 @@ wheels/
 # Virtual environments
 .venv
 src_v1/
+
+latencias_benchmark.png

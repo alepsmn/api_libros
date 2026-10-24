@@ -23,7 +23,7 @@ def server():
 
 def post_concurr(url_base, i, results, ):
     url = f"{url_base}/jobs"
-    body = json.dumps({"payload": "tarea_preuba"}).encode("utf-8")
+    body = json.dumps({"payload": {"type": "wait", "ms": 0}} ).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     for a in range(200):
         try:
@@ -34,8 +34,6 @@ def post_concurr(url_base, i, results, ):
                 results.append({"id": i, "status": status, "data": data, "error": None})
         except Exception as e:
             results.append({"id": i, "status": None, "data": None, "error": e})
-
-    
 
 def test_concurrency(server):
     zreads = []
@@ -55,4 +53,3 @@ def test_concurrency(server):
     assert {r['status'] for r in results} == {201} # colapsas los estados ocurridos y comparas
 
     assert len({result['data']['id'] for result in results}) == 3000
-

@@ -525,21 +525,187 @@ la red lo tapa. En el peldaño 7, con el endpoint lento, pasará lo contrario.
 
 ---
 
-## 11. Estado del peldaño 1
+## 11. La frontera del almacén: quién es dueño de cada objeto
+
+El lock protege el estado **mientras está dentro**. No sirve de nada si el estado sale o entra
+por la puerta.
+
+> Un lock solo funciona si **todos** los accesos al estado protegido pasan por él.
+> Y si todos deben pasar por él, el estado **no puede salir del objeto**. Lo que sale es copia.
+
+### Las dos direcciones de la fuga
+
+**Salida.** `return self.jobs[id]` entrega una referencia al objeto guardado. Quien la recibe
+puede mutarlo sin lock y sin enterarse. Cuatro de los cinco métodos lo hacían: `save`, `get`,
+`get_all` y `update`. `delete` era el único limpio, y por un motivo concreto: el objeto que
+devuelve **ya salió del almacén**, nadie puede alcanzarlo, no hay nada que proteger.
+
+**Entrada.** La que no se ve:
+
+```python
+data = json.loads(body)          # dict del handler
+...
+self.jobs[id] = data             # el almacén ADOPTA el objeto del handler
+```
+
+`self.jobs[id] = data` no copia: guarda una **referencia**. Después de esa línea, la variable
+del handler y `self.jobs[id]` son el mismo objeto con dos nombres.
+
+Copiar en el `return` no tapa esto: el handler ya tenía el objeto **antes** de llamar.
+
+### Una sola copia, en la entrada
+
+```python
+def save(self, data):
+    with self.lock:
+        data['id'] = self.counter
+        self.jobs[self.counter] = data.copy()   # ← la única copia
+        self.counter += 1
+    return data                                  # el objeto del handler, que ya era suyo
+```
+
+Objetos que existen al terminar: `data` (dueño: el handler) y la copia (dueño: el almacén).
+Cada uno con un único dueño → frontera cerrada. Un `return data.copy()` crearía un tercero
+idéntico al primero para dárselo a quien ya lo tiene.
+
+> Criterio, sin intuición: **cuenta los objetos y quién puede alcanzar cada uno.** Si un objeto
+> tiene dos dueños que pueden escribirlo, la frontera está rota.
+
+### Superficial, dos niveles o profunda
+
+| | coste (3.000 jobs) | |
+|---|---|---|
+| un solo job, `.copy()` | **0,033 µs** | 33 ns: gratis |
+| `jobs.copy()` | 14 µs | solo el mapa, valores compartidos → **insuficiente** |
+| `{k: v.copy() ...}` | **163 µs** | frontera completa con valores planos |
+| `deepcopy(jobs)` | 3.540 µs | 22× más, protección idéntica → **descartado** |
+
+`deepcopy` solo gana con anidamiento real. Hoy los jobs tienen un nivel y valores inmutables.
+Llegará su día: cuando `result` deje de ser `None` y contenga una lista o un dict, la
+comprensión de dos niveles deja de bastar.
+
+Los 163 µs se pagan **con el lock cogido**, bloqueando a todos los escritores: el 28 % de lo
+que dura una petición. Hoy da igual porque casi no hay GETs. Si `get_all` se volviera
+frecuente, el arreglo es copiar el mapa dentro del lock y los valores fuera.
+
+### Qué va dentro del lock
+
+**El intervalo que debe ser indivisible, ni una línea más.** Un lock es serialización: todo lo
+que metas dentro bloquea a los demás.
+
+- `save`: el RMW completo. El `return data.copy()` fuera — `data` es del hilo.
+- `get` / `get_all`: el acceso a `self.jobs`, comprensión incluida. El `return` dentro del
+  `with` es correcto: `__exit__` corre en cualquier salida, también por `return`.
+- `update` / `delete`: del `if` hasta la escritura. Es check-then-act, y es indivisible.
+
+Y `with self.lock:`, nunca `acquire()` / `release()` a mano: si algo lanza entre medias, el
+lock queda cogido para siempre y **el servidor se cuelga entero, en silencio**.
+
+### El `None` defensivo que escondía el bug
+
+```python
+self.jobs.pop(id, None)    # antes
+self.jobs.pop(id)          # ahora
+```
+
+Con el `if` de arriba, el `pop` no puede fallar. Ese `None` solo servía para silenciar el caso
+en que la garantía era falsa — que es justo el caso que quieres ver. Dos DELETE simultáneos
+pasaban los dos el check, el segundo recibía `None`, y el handler respondía 204 a ambos.
+
+> No pongas un valor por defecto defensivo para tapar un estado imposible. Si de verdad es
+> imposible, que reviente cuando deje de serlo.
+
+### `Lock` no es reentrante
+
+Si un método cogiera el lock y llamara a otro que también lo coge, **el hilo se espera a sí
+mismo**. El lock no guarda quién lo tiene: solo "cogido / libre". Para él la petición del
+propio dueño es indistinguible de la de un extraño, y la trata igual: a esperar.
+
+No lanza, no hay timeout, no muere. El hilo queda vivo, parado, **y con el lock cogido** → se
+bloquean todos los demás. El servidor deja de responder sin un solo mensaje de error. Eso es
+un **deadlock**.
+
+`RLock` lleva la cuenta del hilo dueño y permite reentrar. Pero necesitarlo suele indicar que
+no está claro qué capa es dueña de la sección crítica. Estructura limpia: métodos internos sin
+lock, y el lock se coge una vez en el método público.
+
+Hoy ningún método llama a otro. La tentación llega en el peldaño 3, con los workers.
+
+---
+
+## 12. Los tests de encapsulación, y cómo saber si un test sirve
+
+Tres tests unitarios de `RawData` — sin servidor, sin HTTP. Por HTTP no probarían nada: el
+JSON que recibe el cliente ya es una copia por definición.
+
+Cada uno muta algo y comprueba el almacén **a través de la propia API**, nunca mirando
+`self.jobs`. Un test que hurga en los atributos internos queda atado a la implementación y se
+rompe al meter SQLite en el peldaño 7.
+
+```python
+job = storage.get(id)
+job["payload"] = "MUTATED"
+assert storage.get(id)["payload"] == "test_load"    # el segundo get es la ventana
+```
+
+Dos errores que cometí escribiéndolos:
+
+**`assert job != job2`.** Dice "son distintos". Pasaría también si `get` devolviera basura.
+Hay que afirmar **el valor esperado**, no una diferencia.
+
+**El valor esperado recalculado a partir del id.** `assert jobs2[k]["payload"] == f"test_load{k}"`
+solo funciona mientras clave e índice coincidan — la suposición que precisamente quería
+eliminar. El esperado tiene que venir de lo que registré al crear:
+
+```python
+expected[job["id"]] = f"test_load{i}"
+```
+
+Así el test no sabe ni le importa qué ids genera el almacén.
+
+Nota sobre `save`: devuelve el **mismo objeto** que se le pasó, así que mutar el retorno y
+mutar la entrada son la misma operación. Una sola frontera que probar, no dos.
+
+### Mutation testing
+
+Introducir a propósito el bug que el test dice prevenir, y comprobar que lo caza.
+
+```
+save adoptando el objeto   -> rojo en test_inmutability_save
+get devolviendo referencia -> rojo en test_inmutability_get
+get_all superficial        -> rojo en test_inmutability_get_all
+```
+
+Cada mutante detectado por exactamente un test. Sin solapes (el test apunta a una sola
+frontera) y sin huecos (ningún mutante sobrevive).
+
+Es la forma general de lo que hice a mano con el `yield_point`:
+
+> **Un verde solo significa algo si antes supe producir el rojo.**
+
+Si al romper una línea no se pone rojo ninguno, el test es decorativo. Si se pone rojo otro
+distinto del que esperaba, los tests no vigilan lo que creo que vigilan.
+
+---
+
+## 13. Estado del peldaño 1 — CERRADO
 
 - [x] `ThreadingHTTPServer` en `run()` y en el fixture de concurrencia
 - [x] Papel: trazas (a) y (b)
-- [x] Test de estrés con aserciones reales → verde, 3 s, 3.000 ids únicos
-- [x] `JobServer` con `request_queue_size = 128` → desaparece el rojo de transporte
+- [x] Test de estrés con aserciones reales
+- [x] `JobServer` con `request_queue_size = 128` → fuera el rojo de transporte
 - [x] Paso 4: `yield_point` → **rojo**, 2.872–2.920 ids únicos de 3.000, reproducible
 - [x] Paso 5: lock → **verde** con la instrumentación puesta
-- [ ] `with self.lock:` en vez de `acquire()` / `release()`
-- [ ] Paso 6: `get_all()` devuelve el dict interno, no una copia
-- [ ] `update`, `delete`: también tocan `self.jobs`. ¿Necesitan el lock? ¿El mismo?
-- [ ] Explicación escrita, tres líneas: por qué sin el `yield_point` el test nunca falla
+- [x] `with self.lock:` en los cinco métodos
+- [x] Copias en la frontera: una, en la entrada de `save` y `update`; al salir en `get`/`get_all`
+- [x] `pop(id)` sin el `None` defensivo
+- [x] Invariante escrita en el docstring de `RawData`
+- [x] Tres tests de encapsulación, verificados por mutación
+- [x] Commit
 
-**Criterio de control:** la misma suite en rojo y en verde, con la instrumentación presente en
-ambos casos, más la explicación. Ya tengo las dos salidas.
+**Verificación final** (sonda externa, 4 escritores concurrentes `save`+`update`+`delete`
+contra 500 `get_all` y 20.000 `get`): cero errores en lectores y escritores, y las tres
+fronteras intactas. Suite: 9 passed.
 
 ### Decisión de diseño, escrita a propósito
 
@@ -547,10 +713,11 @@ ambos casos, más la explicación. Ya tengo las dos salidas.
   a propósito**: si falla, es el routing, no un artefacto de concurrencia.
 - `test_concurrency.py` → `JobServer`. Valida el almacén bajo carga. **Concurrente a
   propósito.**
+- `test_raw_data.py` → sin servidor. Valida las fronteras del almacén.
 
 ---
 
-## 12. Preguntas abiertas
+## 14. Preguntas abiertas
 
 Respondidas en esta sesión: qué suelta el GIL (E/S y dormir), por qué `append` es segura,
 cómo instrumentar sin duplicar código.
@@ -570,7 +737,7 @@ Pendientes:
 
 ---
 
-## 13. Vocabulario
+## 15. Vocabulario
 
 | término | definición operativa |
 |---|---|
