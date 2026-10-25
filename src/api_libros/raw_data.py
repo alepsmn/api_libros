@@ -37,25 +37,25 @@ class RawData:
     def save(self, type: str, ms: int):
         with self.lock:
             job = Job(id=self.counter, work_type=type, duration_work_ms=ms,
-                    state=State.PENDING, result='Done')
+                    state=State.PENDING, result=None)
             self.jobs[self.counter] = job
             if self.yield_point: # causes race conditions -> test: ~1-2900 perdidas
                 self.yield_point()
             self.counter += 1
         return job
     
-    def get(self, id: int) -> dict[str, str|int]:
+    def get(self, id: int):
         with self.lock:
             if id not in self.jobs:
                 raise JobNotFound(id)
             return self.jobs[id]
 
-    def get_all(self) -> dict[int, dict[str, str|int]]:
+    def get_all(self):
         with self.lock:
         # Aqui no vale copia superficial -> copia claves, valores = a los de estado
-            return dict(self.jobs) # ya no es codigo C, es python: tiene puntos de cesion
+            return dict(self.jobs)
 
-    def update(self, id: int, type: str, ms: int) -> dict[str, str|int]:
+    def update(self, id: int, type: str, ms: int):
         with self.lock:
             if id not in self.jobs:
                 raise JobNotFound(id)

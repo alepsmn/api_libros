@@ -65,7 +65,19 @@ def test_get_all(server):
     url = f"{server}/jobs"
     answer = urllib.request.urlopen(f"{url}")
     assert int(answer.status) == 200
-    # contenido?
+    data = json.loads(answer.read())
+
+    # por simplicidad -> literal
+    # correcto: hacer llamada con get y extraer su id,
+    # asi se verifica la propia API - no literales
+    p = next(p for p in data['jobs'] if p['id'] == 0)
+    assert p['state'] == 'pending'
+
+    # EJ
+    # para varios assert -> crear dict con indices por key
+    by_id= {p['id']: p for p in data['jobs']}
+    job = by_id[0] # -> variar
+    assert job['state'] == 'pending'
 
 def test_get(server):
     url = f"{server}/jobs/0"

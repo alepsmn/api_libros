@@ -28,7 +28,8 @@ class JobHandler(BaseHTTPRequestHandler):
 
             else:
                 jobs = self.server.service_validator.val_get_all()
-                self.response(200, {"jobs": {k:v for k,v in jobs.items()}})
+                self.response(200, {"jobs": sorted(jobs.values(), key=lambda o: o.id)})
+                # 'jobs': [{job1}, {job2}, ...]
         else:
             self.response(404, {"error": "Route not found"}) # -> not found
 
@@ -97,4 +98,4 @@ class JobHandler(BaseHTTPRequestHandler):
         self.send_header('Content-Type', 'application/json')
         self.end_headers()
         if message is not None:
-            self.wfile.write((json.dumps(message)+'\n').encode('utf-8'))
+            self.wfile.write((json.dumps(message, default=lambda o: o.to_dict())+'\n').encode('utf-8'))
