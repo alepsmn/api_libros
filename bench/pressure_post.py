@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 def post(url_base, i, results, failures):
     url = f"{url_base}/jobs"
-    body = json.dumps({"payload": {"type": "calculate", "ms": 100}}).encode('utf-8')
+    body = json.dumps({"type": "calculate", "ms": 100}).encode('utf-8')
     headers = {"Content-Type": "application/json"}
 
     counter = 0

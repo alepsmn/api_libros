@@ -23,7 +23,7 @@ def server():
 
 def post_concurr(url_base, i, results, ):
     url = f"{url_base}/jobs"
-    body = json.dumps({"payload": {"type": "wait", "ms": 0}} ).encode("utf-8")
+    body = json.dumps({"type": "calculate", "ms": 0}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     for a in range(200):
         try:

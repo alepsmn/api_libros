@@ -22,13 +22,13 @@ class JobHandler(BaseHTTPRequestHandler):
                     return
                 try:
                     job = self.server.service_validator.val_get(id_job)
-                    self.response(200, job)
+                    self.response(200, job.to_dict())
                 except JobNotFound:
                     self.response(404, {"error": "Job not found"})
 
             else:
                 jobs = self.server.service_validator.val_get_all()
-                self.response(200, {"jobs": jobs})
+                self.response(200, {"jobs": {k:v for k,v in jobs.items()}})
         else:
             self.response(404, {"error": "Route not found"}) # -> not found
 
@@ -42,7 +42,7 @@ class JobHandler(BaseHTTPRequestHandler):
             data = json.loads(body)
             try:
                 job = self.server.service_validator.val_save(data)
-                self.response(201, job)
+                self.response(201, job.to_dict())
             except InvalidDataStructure:
                 self.response(400, {"error": "Invalid data structure"})
         else:
@@ -62,7 +62,7 @@ class JobHandler(BaseHTTPRequestHandler):
                 data = json.loads(body)
                 try:
                     job = self.server.service_validator.val_update(id_job, data)
-                    self.response(200, job)
+                    self.response(200, job.to_dict())
                 except InvalidDataStructure:
                     self.response(400, {"error": "Invalid data structure"})
                 except JobNotFound:

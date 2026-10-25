@@ -1,44 +1,68 @@
 from api_libros.custom_exc import JobNotFound
 from threading import Lock
+from dataclasses import dataclass
+from enum import StrEnum
+
+class State(StrEnum):
+    PENDING = "pending"
+    RUNNING = 'running'
+    DONE = "done"
+    FAILED = "failed"
+  
+@dataclass(frozen=True)
+class Job:
+    id: int
+    work_type: str
+    duration_work_ms: int
+    result: str
+    state: State
+
+    def to_dict(self):
+        return {"id": self.id,
+                "work_type": self.work_type,
+                "duration_ms": self.duration_work_ms,
+                "state": self.state.value,
+                "result": self.result}
 
 class RawData:
     def __init__(self, yield_point=None):
         '''Un job guardado es inmutable,  para cambiarlo se reemplaza la entrada,
         nunca se muta en sitio.'''
-        self.jobs = {0:{"payload":"agua"}}
+        self.jobs = {}
         self.counter = 0
         self.yield_point = yield_point
         self.lock = Lock() # acquire / release
 
     # -------------QUITAR LOS .COPY() PARA VER SI LOS TEST CAPTURAN LO QUE BUSCAN - MUTABILIDAD DEL ESTADOS
-    def save(self, data: dict[str, str]) -> dict[str, str|int]:
+    def save(self, type: str, ms: int):
         with self.lock:
-            # no puedo guardarme el dato recibido, el exterior tiene referencia a el
-            data['id'] = self.counter
-            self.jobs[self.counter] = data.copy() # me guardo una copia del objeto mutado
+            job = Job(id=self.counter, work_type=type, duration_work_ms=ms,
+                    state=State.PENDING, result='Done')
+            self.jobs[self.counter] = job
             if self.yield_point: # causes race conditions -> test: ~1-2900 perdidas
                 self.yield_point()
             self.counter += 1
-        return data # devuelvo el mismo objeto recibido pero mutado
-
+        return job
+    
     def get(self, id: int) -> dict[str, str|int]:
         with self.lock:
             if id not in self.jobs:
                 raise JobNotFound(id)
-            return self.jobs[id].copy()
+            return self.jobs[id]
 
     def get_all(self) -> dict[int, dict[str, str|int]]:
         with self.lock:
         # Aqui no vale copia superficial -> copia claves, valores = a los de estado
-            return {k: v.copy() for k, v in self.jobs.items()} # ya no es codigo C, es python: tiene puntos de cesion
+            return dict(self.jobs) # ya no es codigo C, es python: tiene puntos de cesion
 
-    def update(self, id: int, data: dict[str, str]) -> dict[str, str|int]:
+    def update(self, id: int, type: str, ms: int) -> dict[str, str|int]:
         with self.lock:
             if id not in self.jobs:
                 raise JobNotFound(id)
-            data['id'] = id
-            self.jobs[id] = data.copy()
-        return data
+            job = Job(id=id, work_type=type, duration_work_ms=ms,
+                state=State.PENDING, result=None)
+            self.jobs[id] = job
+        return job
 
     def delete(self, id: int):
         with self.lock:

@@ -40,7 +40,7 @@ def server():
 def test_post(server):
     url = f"{server}/jobs"
     # "tarea_prueba" -> dict[str]
-    body = json.dumps({"payload": {"type": "wait", "ms": 100}}).encode("utf-8")
+    body = json.dumps({"type": "calculate", "ms": 100}).encode("utf-8")
     headers = {"Content-Type": "application/json"}
 
     req = urllib.request.Request(url, data=body, headers=headers, method='POST')
@@ -50,7 +50,8 @@ def test_post(server):
 
     data = json.loads(answer.read())
     assert data['state'] == 'pending'
-    assert data['payload'] == {"type": "wait", "ms": 100}
+    assert data['work_type'] == 'calculate'
+    assert data['duration_ms'] == 100
 
     # ----------------------- POST: WRONG STRUCTURE
     body_2 = json.dumps({"paylo": {"type": "wait", "ms": 100}}).encode("utf-8")
@@ -88,7 +89,7 @@ def test_get(server):
 
 def test_update(server):
     url = f"{server}/jobs/0"
-    body = json.dumps({"payload": {"type": "wait", "ms": 100}}).encode('utf-8')
+    body = json.dumps({"type": "wait", "ms": 100}).encode('utf-8')
     headers = {"Content-Type": "application/json"}
 
     req = urllib.request.Request(url, data=body, headers=headers, method='PUT')
@@ -97,7 +98,9 @@ def test_update(server):
     assert int(answer.status) == 200
     data = json.loads(answer.read())
     assert data['state'] == 'pending'
-    assert data['payload'] == {"type": "wait", "ms": 100}
+    assert data['work_type'] == 'wait'
+    assert data['duration_ms'] == 100
+    assert data['id'] == 0
 
 # ---------------------------------------
     url_2 = f"{server}/jobs/99"
